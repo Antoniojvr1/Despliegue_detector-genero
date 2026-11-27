@@ -2,73 +2,80 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer
 import cv2
 import numpy as np
-from deepface import DeepFace
 import av
+import urllib.request
+import os
 
-st.set_page_config(page_title='Detector de Genero con IA', layout='centered')
-st.title('Detector de Genero en Tiempo Real')
-st.write('Esta aplicacion utiliza tu camara web, Haar Cascades para localizar rostros y DeepFace para predecir el genero.')
+st.set_page_config(page_title='Detector de Género Ultra-Ligero', layout='centered')
+st.title('Detector de Género en Tiempo Real ⚡')
+st.write('Versión optimizada de alto rendimiento sin TensorFlow para Streamlit Cloud.')
 
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+# Descargar modelos pre-entrenados ligeros de OpenCV para Género si no existen
+@st.cache_resource
+def load_models():
+    # Rostro (Haar Cascade)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    
+    # Género (Caffe Model - Solo ~9MB)
+    proto_url = 'https://raw.githubusercontent.com/spmallick/learnopencv/master/AgeGender/gender_deploy.prototxt'
+    model_url = 'https://github.com/spmallick/learnopencv/raw/master/AgeGender/gender_net.caffemodel'
+    
+    if not os.path.exists('gender_deploy.prototxt'):
+        urllib.request.urlretrieve(proto_url, 'gender_deploy.prototxt')
+    if not os.path.exists('gender_net.caffemodel'):
+        urllib.request.urlretrieve(model_url, 'gender_net.caffemodel')
+        
+    gender_net = cv2.dnn.readNetFromCaffe('gender_deploy.prototxt', 'gender_net.caffemodel')
+    return face_cascade, gender_net
+
+try:
+    face_cascade, gender_net = load_models()
+    MODEL_MEAN_VALUES = (104.0, 117.0, 123.0)
+    gender_list = ['Hombre', 'Mujer']
+except Exception as e:
+    st.error(f'Error al cargar los modelos: {e}')
 
 class VideoProcessor:
-    def __init__(self):
-        self.frame_count = 0
-        self.tracked_faces = []
-
     def recv(self, frame):
         img = frame.to_ndarray(format='bgr24')
-        img = cv2.flip(img, 1)
+        img = cv2.flip(img, 1) # Efecto espejo
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(50, 50))
-        new_tracked_faces = []
-
+        
+        # Detectar rostros
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(60, 60))
+        
         for (x, y, w, h) in faces:
-            cx, cy = x + w // 2, y + h // 2
-            matched_label = 'Analizando...'
-            matched_color = (0, 255, 0)
-
-            for prev in self.tracked_faces:
-                if abs(cx - prev['cx']) < 50 and abs(cy - prev['cy']) < 50:
-                    matched_label = prev['label']
-                    matched_color = prev['color']
-                    break
-
-            if self.frame_count % 10 == 0 or matched_label == 'Analizando...':
-                try:
-                    face_crop = img[y:y+h, x:x+w]
-                    if face_crop.size > 0:
-                        analysis = DeepFace.analyze(
-                            img_path=face_crop,
-                            actions=['gender'],
-                            detector_backend='skip',
-                            enforce_detection=False,
-                            silent=True
-                        )
-                        res = analysis[0] if isinstance(analysis, list) else analysis
-                        w_score = res['gender'].get('Woman', 0.0)
-                        m_score = res['gender'].get('Man', 0.0)
-
-                        if w_score > 40.0:
-                            matched_label = f'Mujer: {w_score:.1f}%'
-                            matched_color = (180, 105, 255)
-                        else:
-                            matched_label = f'Hombre: {m_score:.1f}%'
-                            matched_color = (255, 144, 30)
-                except Exception as e:
-                    pass
-
-            new_tracked_faces.append({'cx': cx, 'cy': cy, 'label': matched_label, 'color': matched_color})
-            cv2.rectangle(img, (x, y), (x+w, y+h), matched_color, 2)
-            text_y = y - 10 if y - 10 > 10 else y + h + 20
-            cv2.putText(img, matched_label, (x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, matched_color, 2)
-
-        self.tracked_faces = new_tracked_faces
-        self.frame_count += 1
+            # Extraer e inflar un poco la zona del rostro para el modelo de género
+            pad = 15
+            x1 = max(0, x - pad)
+            y1 = max(0, y - pad)
+            x2 = min(img.shape[1], x + w + pad)
+            y2 = min(img.shape[0], y + h + pad)
+            
+            face_crop = img[y1:y2, x1:x2]
+            if face_crop.size > 0:
+                # Preparar imagen para la Red Neuronal de OpenCV
+                blob = cv2.dnn.blobFromImage(face_crop, 1.0, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+                gender_net.setInput(blob)
+                gender_preds = gender_net.forward()
+                
+                # Obtener predicción
+                gender = gender_list[gender_preds[0].argmax()]
+                confidence = gender_preds[0].max() * 100
+                
+                # Asignar color según el género
+                color = (255, 105, 180) if gender == 'Mujer' else (255, 144, 30) # Rosa para mujer, Azul para hombre
+                label = f'{gender}: {confidence:.1f}%'
+                
+                # Dibujar rectángulo y etiqueta
+                cv2.rectangle(img, (x, y), (x+w, y+h), color, 2)
+                text_y = y - 10 if y - 10 > 10 else y + h + 20
+                cv2.putText(img, label, (x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                
         return av.VideoFrame.from_ndarray(img, format='bgr24')
 
 webrtc_streamer(
-    key='gender-detection',
+    key='gender-detection-light',
     video_frame_callback=lambda frame: VideoProcessor().recv(frame),
     media_stream_constraints={'video': True, 'audio': False},
     rtc_configuration={
@@ -77,7 +84,7 @@ webrtc_streamer(
 )
 
 st.markdown('---')
-st.markdown('### Instrucciones para Desplegar:')
-st.markdown('1. Sube estos tres archivos (app.py, requirements.txt, packages.txt) a tu repositorio.')
-st.markdown('2. Conecta tu GitHub con Streamlit Community Cloud.')
-st.markdown('3. ¡Disfruta de tu app desplegada!')
+st.markdown('### 🎉 ¡Listo para desplegar sin errores!')
+st.markdown('1. Sube este nuevo **app.py** a tu repositorio.')
+st.markdown('2. Asegúrate de tener el **requirements.txt** ultra-ligero que generamos antes (solo streamlit, av, streamlit-webrtc y opencv-python-headless).')
+st.markdown('3. ¡Reinicia tu aplicación en Streamlit Cloud y ahora cargará al instante!')
