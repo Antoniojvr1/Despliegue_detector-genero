@@ -1,8 +1,15 @@
 import streamlit as st
+import sys
+import os
+import urllib.request
+
+# Forzar la limpieza de módulos de cv2 previamente importados incorrectamente por Streamlit
+for key in list(sys.modules.keys()):
+    if 'cv2' in key:
+        sys.modules.pop(key, None)
+
 import cv2
 import numpy as np
-import urllib.request
-import os
 
 st.set_page_config(page_title='Detector de Género Estable', layout='centered')
 st.title('Detector de Género con Cámara Web 📸')
@@ -13,6 +20,10 @@ st.write('Versión estable de máxima compatibilidad para Streamlit Cloud.')
 @st.cache_resource
 def load_models_robust():
     try:
+        # Verificar que el módulo cv2 se cargó correctamente y tiene los atributos esenciales
+        if not hasattr(cv2, 'CascadeClassifier'):
+            return None, None, 'Error crítico: OpenCV no se cargó correctamente en el servidor. Intente reiniciar la app.'
+            
         # Intentar descargar el Haar Cascade oficial para evitar problemas de rutas en Streamlit
         xml_url = 'https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml'
         if not os.path.exists('haarcascade_frontalface_default.xml'):
@@ -39,7 +50,7 @@ face_cascade, gender_net, status = load_models_robust()
 
 if status != True:
     st.error(f'⚠️ Error de inicialización: {status}')
-    st.info('Por favor, recarga la aplicación o verifica que los archivos de configuración se hayan descargado correctamente.')
+    st.info('Por favor, ve a la configuración de tu aplicación en Streamlit Cloud y presiona "Reboot App" para limpiar el conflicto de caché.')
 else:
     MODEL_MEAN_VALUES = (104.0, 117.0, 123.0)
     gender_list = ['Hombre', 'Mujer']
