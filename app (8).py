@@ -37,10 +37,11 @@ def load_models_robust():
         face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
         if face_cascade.empty():
             return None, None, 'No se pudo inicializar el Haar Cascade (archivo XML vacío o corrupto).'
-
-        # Modelos ligeros de detección de género
+        
+        # Modelos ligeros de detección de género (URL actualizada)
         proto_url = 'https://raw.githubusercontent.com/spmallick/learnopencv/master/AgeGender/gender_deploy.prototxt'
-        model_url = 'https://github.com/spmallick/learnopencv/raw/master/AgeGender/gender_net.caffemodel'
+        model_url = 'https://raw.githubusercontent.com/eveningglow/age-and-gender-classification/master/model/gender_net.caffemodel'
+
 
         if not os.path.exists('gender_deploy.prototxt'):
             urllib.request.urlretrieve(proto_url, 'gender_deploy.prototxt')
