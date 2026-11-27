@@ -24,9 +24,10 @@ def load_models_robust():
         return None, None, f'Error al importar OpenCV (cv2): {OPENCV_ERROR_MSG}'
         
     try:
-        # Comprobación de integridad básica
+        # Comprobación de integridad básica con diagnóstico de ruta
         if not hasattr(cv2, 'CascadeClassifier'):
-            return None, None, 'La biblioteca cv2 se importó pero carece de CascadeClassifier. Esto usualmente indica un conflicto entre opencv-python y opencv-python-headless en requirements.txt.'
+            ruta_cv2 = getattr(cv2, '__file__', getattr(cv2, '__path__', 'Desconocida'))
+            return None, None, f'cv2 cargado desde: {ruta_cv2} | Contenido: {dir(cv2)}'
             
         # Descargar el archivo Haar Cascade desde el repositorio oficial de OpenCV
         xml_url = 'https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml'
